@@ -1,0 +1,153 @@
+# TuCentroPDF Engine V2 - Alert Rules
+# FASE 4: Alertas básicas de observabilidad
+
+groups:
+  # Alertas de Queue
+  - name: queue_alerts
+    interval: 30s
+    rules:
+      - alert: QueueLengthHigh
+        expr: tucentropdf_queue_length > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: queue
+        annotations:
+          summary: "Queue length is high ({{ $labels.queue }})"
+          description: "Queue {{ $labels.queue }} has {{ $value }} pending jobs for more than 5 minutes."
+
+      - alert: QueueLengthCritical
+        expr: tucentropdf_queue_length > 500
+        for: 2m
+        labels:
+          severity: critical
+          component: queue
+        annotations:
+          summary: "Queue length is critical ({{ $labels.queue }})"
+          description: "Queue {{ $labels.queue }} has {{ $value }} pending jobs. System may be overloaded."
+
+  # Alertas de Workers
+  - name: worker_alerts
+    interval: 30s
+    rules:
+      - alert: WorkerDown
+        expr: tucentropdf_worker_health == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          summary: "Worker is down ({{ $labels.worker }})"
+          description: "Worker {{ $labels.worker }} ({{ $labels.instance }}) has been unhealthy for more than 5 minutes."
+
+      - alert: WorkerErrorRateHigh
+        expr: rate(tucentropdf_worker_errors_total[5m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "Worker error rate is high ({{ $labels.worker }})"
+          description: "Worker {{ $labels.worker }} has {{ $value }} errors/sec for more than 10 minutes."
+
+      - alert: WorkerProcessingTimeSlow
+        expr: histogram_quantile(0.95, rate(tucentropdf_worker_processing_seconds_bucket[5m])) > 300
+        for: 15m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "Worker processing time is slow ({{ $labels.worker }})"
+          description: "95th percentile processing time for {{ $labels.worker }} is {{ $value }}s (threshold: 300s)."
+
+  # Alertas de Jobs
+  - name: job_alerts
+    interval: 1m
+    rules:
+      - alert: JobFailureRateHigh
+        expr: rate(tucentropdf_jobs_failed_total[10m]) / rate(tucentropdf_jobs_enqueued_total[10m]) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: jobs
+        annotations:
+          summary: "Job failure rate is high"
+          description: "Job failure rate is {{ $value | humanizePercentage }} for type {{ $labels.type }}."
+
+      - alert: JobFailureRateCritical
+        expr: rate(tucentropdf_jobs_failed_total[5m]) / rate(tucentropdf_jobs_enqueued_total[5m]) > 0.20
+        for: 5m
+        labels:
+          severity: critical
+          component: jobs
+        annotations:
+          summary: "Job failure rate is critical"
+          description: "Job failure rate is {{ $value | humanizePercentage }} for type {{ $labels.type }}. Immediate action required."
+
+  # Alertas de API
+  - name: api_alerts
+    interval: 30s
+    rules:
+      - alert: APIErrorRateHigh
+        expr: rate(tucentropdf_http_errors_total[5m]) > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API error rate is high"
+          description: "API has {{ $value }} errors/sec on {{ $labels.endpoint }} for more than 10 minutes."
+
+      - alert: APILatencyHigh
+        expr: histogram_quantile(0.95, rate(tucentropdf_http_request_duration_seconds_bucket[5m])) > 5
+        for: 15m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API latency is high"
+          description: "95th percentile latency for {{ $labels.endpoint }} is {{ $value }}s (threshold: 5s)."
+
+      - alert: APILatencyCritical
+        expr: histogram_quantile(0.95, rate(tucentropdf_http_request_duration_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "API latency is critical"
+          description: "95th percentile latency for {{ $labels.endpoint }} is {{ $value }}s. Service degraded."
+
+      - alert: RateLimitHitsHigh
+        expr: rate(tucentropdf_rate_limit_hits_total[5m]) > 50
+        for: 10m
+        labels:
+          severity: info
+          component: api
+        annotations:
+          summary: "Rate limit hits are high"
+          description: "Plan {{ $labels.plan }} is hitting rate limits frequently: {{ $value }} hits/sec."
+
+  # Alertas de Sistema
+  - name: system_alerts
+    interval: 1m
+    rules:
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: monitoring
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus monitoring system is not responding."
+
+      - alert: ScrapeFailing
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Scrape target is down"
+          description: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) is down for more than 5 minutes."

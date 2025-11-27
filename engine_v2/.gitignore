@@ -1,0 +1,97 @@
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.production.*
+.env.*.backup
+
+# Go
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+main
+server
+
+# Test files
+coverage.out
+c.out
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker
+.dockerignore
+
+# Build artifacts
+dist/
+build/
+
+# Node modules (if any frontend)
+node_modules/
+
+# Dependencies
+/vendor/
+
+# Binaries
+bin/
+
+# Archives
+*.zip
+*.tar.gz
+*.tgz
+
+# Backups
+backups/
+*.backup
+*.bak
+
+# Security
+*.pem
+*.key
+*.crt
+*.csr
+secrets/
+
+# SSL certificates (use Let's Encrypt on server)
+nginx/ssl/*.pem
+nginx/ssl/*.key
+
+# Uploads and temp files
+uploads/
+temp/
+
+# Testing
+coverage.html
+coverage.xml
+testresults.xml
+
+# Local development
+local/

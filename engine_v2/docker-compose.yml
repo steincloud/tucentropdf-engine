@@ -1,0 +1,383 @@
+version: '3.8'
+
+services:
+  # TuCentroPDF Engine V2
+  tucentropdf-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${ENGINE_PORT:-8080}:8080"
+    environment:
+      - ENGINE_SECRET=${ENGINE_SECRET:-dev-secret-change-in-production-min32chars}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - PORT=8080
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=json
+      
+      # AI/OCR
+      - AI_OCR_ENABLED=${AI_OCR_ENABLED:-true}
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - AI_MODEL=${AI_MODEL:-gpt-4o-mini}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # OCR Classic
+      - OCR_PROVIDER=${OCR_PROVIDER:-tesseract}
+      - OCR_LANGUAGES=${OCR_LANGUAGES:-eng,spa,por,fra}
+      - TESSERACT_PATH=/usr/bin/tesseract
+      
+      # Office
+      - OFFICE_ENABLED=${OFFICE_ENABLED:-true}
+      - OFFICE_PROVIDER=libreoffice
+      - LIBREOFFICE_PATH=/usr/bin/libreoffice
+      
+      # Redis (opcional)
+      - REDIS_ENABLED=true
+      - REDIS_URL=redis://redis:6379
+      
+      # Storage
+      - TEMP_DIR=/tmp/tucentropdf-v2
+      - CLEANUP_INTERVAL=300
+      
+    volumes:
+      - ./temp:/tmp/tucentropdf-v2
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    deploy:
+      resources:
+        limits:
+          memory: ${ENGINE_MEMORY_LIMIT:-1G}      # Límite invisible: 1GB RAM
+          cpus: '${ENGINE_CPU_LIMIT:-1}'          # Límite invisible: 1.0 CPU
+        reservations:
+          memory: ${ENGINE_MEMORY_RESERVE:-300M}  # Reserva invisible: 300MB RAM
+          cpus: '${ENGINE_CPU_RESERVE:-0.2}'      # Reserva invisible: 0.2 CPU
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # OCR Worker dedicado (FASE 3 - Arquitectura Asíncrona)
+  ocr-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.workers
+      target: ocr-worker
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=json
+      
+      # Redis Queue
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB:-0}
+      
+      # OCR Configuration
+      - OCR_PROVIDER=${OCR_PROVIDER:-tesseract}
+      - OCR_LANGUAGES=${OCR_LANGUAGES:-eng,spa,por,fra}
+      - TESSERACT_PATH=/usr/bin/tesseract
+      - OCR_PADDLE_ENABLED=${OCR_PADDLE_ENABLED:-false}
+      
+      # AI OCR
+      - AI_OCR_ENABLED=${AI_OCR_ENABLED:-true}
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - AI_MODEL=${AI_MODEL:-gpt-4o-mini}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Storage
+      - TEMP_DIR=/tmp/tucentropdf-v2
+      
+    volumes:
+      - ./temp:/tmp/tucentropdf-v2
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+      replicas: ${OCR_WORKER_REPLICAS:-2}  # Escalar horizontalmente
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep ocr-worker | grep -v grep || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Office Worker dedicado (FASE 3 - Arquitectura Asíncrona)
+  office-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.workers
+      target: office-worker
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=json
+      
+      # Redis Queue
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB:-0}
+      
+      # Office Configuration
+      - OFFICE_ENABLED=${OFFICE_ENABLED:-true}
+      - OFFICE_PROVIDER=libreoffice
+      - LIBREOFFICE_PATH=/usr/bin/libreoffice
+      
+      # Storage
+      - TEMP_DIR=/tmp/tucentropdf-v2
+      
+    volumes:
+      - ./temp:/tmp/tucentropdf-v2
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+      replicas: ${OFFICE_WORKER_REPLICAS:-2}  # Escalar horizontalmente
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep office-worker | grep -v grep || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Office Worker dedicado (separado del API)
+  office-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./main", "-mode=office-worker"]
+    environment:
+      - WORKER_TYPE=office
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LIBREOFFICE_PATH=/usr/bin/libreoffice
+    volumes:
+      - ./temp:/tmp/tucentropdf-v2
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G        # Límite invisible Office worker: 1.5GB RAM
+          cpus: '1.5'         # Límite invisible Office worker: 1.5 CPU
+        reservations:
+          memory: 512M        # Reserva invisible: 512MB RAM
+          cpus: '0.3'         # Reserva invisible: 0.3 CPU
+    profiles:
+      - workers
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Redis para colas y cache (opcional)
+  redis:
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory ${REDIS_MEMORY:-250mb}    # Límite invisible Redis: 250MB
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-512M}  # Límite invisible: 512MB RAM
+          cpus: '0.3'                          # Límite invisible: 0.3 CPU
+        reservations:
+          memory: 128M                         # Reserva invisible: 128MB RAM
+          cpus: '0.1'                          # Reserva invisible: 0.1 CPU
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Gotenberg para Office conversion (alternativa a LibreOffice)
+  gotenberg:
+    image: gotenberg/gotenberg:7
+    expose:
+      - "3000"
+    environment:
+      - GOTENBERG_API_TIMEOUT=${GOTENBERG_TIMEOUT:-30s}
+      - GOTENBERG_LIBREOFFICE_AUTO_START=true
+      - GOTENBERG_LIBREOFFICE_RESTART_AFTER=10
+      - GOTENBERG_LOG_LEVEL=${GOTENBERG_LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    deploy:
+      resources:
+        limits:
+          memory: ${GOTENBERG_MEMORY_LIMIT:-1G}
+          cpus: '1'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    profiles:
+      - gotenberg
+      - office-fallback
+
+  # Prometheus para métricas (FASE 4 - Observabilidad)
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: tucentropdf-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Grafana para dashboards (FASE 4 - Observabilidad)
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: tucentropdf-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    restart: unless-stopped
+    networks:
+      - tucentropdf-network
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  tucentropdf-network:
+    driver: bridge

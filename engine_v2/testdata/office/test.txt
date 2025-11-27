@@ -1,0 +1,15 @@
+Document Test
+
+Este es un documento de prueba para conversión Office → PDF.
+
+Características a probar:
+- Conversión DOCX → PDF
+- Manejo de texto simple
+- Validación de límites por plan
+- Testing de timeouts
+
+Texto adicional para hacer el documento más realista.
+
+El motor TuCentroPDF Engine V2 debe convertir este archivo correctamente usando LibreOffice en el contenedor Docker.
+
+Testing completed successfully!

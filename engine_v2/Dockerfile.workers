@@ -1,0 +1,120 @@
+# TuCentroPDF Engine V2 - Workers Dockerfile
+# FASE 3: Arquitectura Asíncrona con Workers Especializados
+
+# ============================================
+# Builder Stage (común para todos los workers)
+# ============================================
+FROM golang:1.24-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates tzdata upx
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+
+COPY . .
+
+# Build OCR Worker
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o ocr-worker cmd/ocr-worker/main.go
+
+# Build Office Worker
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s -extldflags "-static"' \
+    -a -installsuffix cgo \
+    -o office-worker cmd/office-worker/main.go
+
+# Comprimir binarios
+RUN upx --ultra-brute -qq ocr-worker && upx -t ocr-worker
+RUN upx --ultra-brute -qq office-worker && upx -t office-worker
+
+# ============================================
+# OCR Worker Stage
+# ============================================
+FROM alpine:3.19 AS ocr-worker
+
+LABEL maintainer="TuCentroPDF Team"
+LABEL version="2.0.0"
+LABEL description="TuCentroPDF OCR Worker - Tesseract + AI OCR"
+
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    curl \
+    # Tesseract OCR
+    tesseract-ocr \
+    tesseract-ocr-data-eng \
+    tesseract-ocr-data-spa \
+    tesseract-ocr-data-por \
+    tesseract-ocr-data-fra \
+    tesseract-ocr-data-deu \
+    tesseract-ocr-data-ita \
+    # Utilidades
+    file \
+    && rm -rf /var/cache/apk/* /tmp/*
+
+RUN addgroup -g 1001 appgroup && \
+    adduser -D -u 1001 -G appgroup appuser
+
+WORKDIR /app
+RUN mkdir -p /tmp/tucentropdf-v2 /app/logs && \
+    chown -R appuser:appgroup /app /tmp/tucentropdf-v2
+
+COPY --from=builder --chown=appuser:appgroup /app/ocr-worker ./
+
+USER appuser
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD ps aux | grep ocr-worker | grep -v grep || exit 1
+
+ENV WORKER_TYPE=ocr
+ENV LOG_LEVEL=info
+ENV LOG_FORMAT=json
+
+CMD ["./ocr-worker"]
+
+# ============================================
+# Office Worker Stage
+# ============================================
+FROM alpine:3.19 AS office-worker
+
+LABEL maintainer="TuCentroPDF Team"
+LABEL version="2.0.0"
+LABEL description="TuCentroPDF Office Worker - LibreOffice Converter"
+
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    curl \
+    # LibreOffice
+    libreoffice \
+    # Fonts para Office
+    ttf-dejavu \
+    ttf-liberation \
+    font-noto \
+    # Utilidades
+    file \
+    && rm -rf /var/cache/apk/* /tmp/*
+
+RUN addgroup -g 1001 appgroup && \
+    adduser -D -u 1001 -G appgroup appuser
+
+WORKDIR /app
+RUN mkdir -p /tmp/tucentropdf-v2 /app/logs && \
+    chown -R appuser:appgroup /app /tmp/tucentropdf-v2
+
+COPY --from=builder --chown=appuser:appgroup /app/office-worker ./
+
+USER appuser
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD ps aux | grep office-worker | grep -v grep || exit 1
+
+ENV WORKER_TYPE=office
+ENV LOG_LEVEL=info
+ENV LOG_FORMAT=json
+
+CMD ["./office-worker"]

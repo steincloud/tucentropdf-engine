@@ -1,0 +1,209 @@
+# golangci-lint configuration for TuCentroPDF Engine V2
+# See https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  go: '1.24'
+  build-tags:
+    - integration
+  skip-dirs:
+    - vendor
+    - testdata
+    - build
+    - .git
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters:
+  enable:
+    # Default linters
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Examines Go source code and reports suspicious constructs
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Mega-linter with many rules
+    - typecheck     # Type check Go code
+    - unused        # Check for unused constants, variables, functions and types
+    
+    # Additional recommended linters
+    - gofmt         # Check formatting
+    - goimports     # Check imports formatting
+    - misspell      # Find commonly misspelled English words
+    - gocritic      # Comprehensive linter with many rules
+    - gocyclo       # Compute cyclomatic complexity
+    - dupl          # Code clone detection
+    - gosec         # Inspect source code for security problems
+    - unconvert     # Remove unnecessary type conversions
+    - unparam       # Find unused function parameters
+    - nakedret      # Check naked returns
+    - prealloc      # Find slice declarations that could be preallocated
+    - exportloopref # Check for exported loop variables references
+    - noctx         # Check for sending http request without context.Context
+    
+    # Style linters
+    - gofumpt       # Stricter gofmt
+    - whitespace    # Check for unnecessary whitespace
+    - wsl           # Whitespace linter forces you to use empty lines
+    
+    # Performance linters
+    - bodyclose     # Check whether HTTP response body is closed successfully
+    - rowserrcheck  # Check whether Err of rows is checked successfully
+    - sqlclosecheck # Check sql.Rows.Close() is called
+    
+    # Bug detection
+    - nilerr        # Find code returning nil even though it checks that the error is not nil
+    - nilnil        # Check that there is no simultaneous return of `nil` error and an invalid value
+
+  disable:
+    - exhaustivestruct # Too strict for our use case
+    - gomnd           # Magic number detection (too noisy)
+    - lll             # Line length limit (handled by formatter)
+    - funlen          # Function length limit (too restrictive)
+    - gocognit        # Cognitive complexity (prefer gocyclo)
+
+linters-settings:
+  # errcheck configuration
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      - (*os.File).Close
+      - (*log.Logger).Print
+      - (*log.Logger).Printf
+      - (*log.Logger).Println
+
+  # gosec configuration
+  gosec:
+    excludes:
+      - G107 # URL provided to HTTP request as taint input (acceptable for our use case)
+      - G404 # Use of weak random number generator (math/rand instead of crypto/rand) - OK for non-crypto use
+
+  # govet configuration
+  govet:
+    check-shadowing: true
+    enable-all: true
+    disable:
+      - fieldalignment # Struct field alignment (micro-optimization)
+
+  # gocyclo configuration
+  gocyclo:
+    min-complexity: 15
+
+  # dupl configuration
+  dupl:
+    threshold: 100
+
+  # gofumpt configuration
+  gofumpt:
+    extra-rules: true
+
+  # gocritic configuration
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+      - opinionated
+    disabled-checks:
+      - whyNoLint      # We don't require why comments on nolint directives
+      - hugeParam      # Struct parameters can be large in our domain
+      - rangeValCopy   # Sometimes copying is more readable
+
+  # misspell configuration
+  misspell:
+    locale: US
+    ignore-words:
+      - colour
+      - centre
+
+  # whitespace configuration
+  whitespace:
+    multi-if: false
+    multi-func: false
+
+  # nakedret configuration
+  nakedret:
+    max-func-lines: 30
+
+  # unparam configuration
+  unparam:
+    check-exported: false
+
+  # prealloc configuration
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: false
+
+issues:
+  # Maximum count of issues with the same text. Set to 0 to disable
+  max-same-issues: 3
+
+  # Maximum issues count per one linter. Set to 0 to disable
+  max-issues-per-linter: 50
+
+  # Exclude generated files
+  exclude-rules:
+    # Exclude certain linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - gocritic
+
+    # Exclude certain linters from main.go (CLI setup can be verbose)
+    - path: cmd/server/main\.go
+      linters:
+        - gocyclo
+        - funlen
+
+    # Exclude certain linters from config files (they can have long functions)
+    - path: internal/config/
+      linters:
+        - gocyclo
+        - funlen
+
+    # Disable some linters for generated code or vendor
+    - path: vendor/
+      linters:
+        - stylecheck
+        - gosec
+        - dupl
+
+    # Disable gosec for test files as they often have hardcoded credentials
+    - path: _test\.go
+      text: "G101|G102|G103|G104|G107|G401|G501|G502|G503|G504"
+
+    # Allow embedding credentials in test files
+    - text: "G101: Potential hardcoded credentials"
+      path: _test\.go
+
+    # Allow certain weak crypto in tests
+    - text: "G401: Use of weak cryptographic primitive"
+      path: _test\.go
+
+    # Allow file creation with loose permissions in tests
+    - text: "G302: Poor file permissions used when creating a directory"
+      path: _test\.go
+
+    # Allow HTTP in test environments
+    - text: "G107: Url provided to HTTP request as taint input"
+      path: _test\.go
+
+    # Ignore certain errors in example files
+    - path: examples/
+      linters:
+        - errcheck
+        - gosec
+
+  # Show all issues
+  exclude-use-default: false
+
+  # Include test files in some checks
+  include:
+    - EXC0002 # Disable excluding of issues about comments from golint
