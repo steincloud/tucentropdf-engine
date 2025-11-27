@@ -9,6 +9,7 @@ logs/
 .env.production.*
 .env.*.backup
 
+
 # Go
 vendor/
 *.exe
@@ -19,7 +20,7 @@ vendor/
 *.test
 *.out
 main
-server
+#server
 
 # Test files
 coverage.out
